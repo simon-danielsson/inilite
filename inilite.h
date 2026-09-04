@@ -92,12 +92,6 @@ _Ini_internal bool _Ini_str_is_empty(const char *s) {
   return true;
 }
 
-_Ini_internal void _Ini_str_to_lower(char *s) {
-  size_t i;
-  for (i = 0; i < strlen(s); i++)
-    s[i] = tolower(s[i]);
-}
-
 #define _Ini_value_line_len 54
 
 _Ini_internal char *_Ini_add_linebreaks(char *val) {
@@ -341,6 +335,8 @@ failure:
   return false;
 }
 
+/* Formats `Ini` data and inserts it into user-provided buffer; ready for
+   writing to a file or whatever else. */
 void Ini_build(Ini *ini, char *buf) {
   for (size_t i = 0; i < ini->count; i++) {
     strcat(buf, "\n[");
@@ -356,6 +352,9 @@ void Ini_build(Ini *ini, char *buf) {
   }
 }
 
+/* Initiates an `Ini` struct. File content provided with `content` parameter
+   will be parsed and appended to the array. `content` can also be `NULL`, in
+   which case the `Ini` struct will be initiated as empty.*/
 void Ini_init(Ini *ini, char *content) {
   ini->cap = 8;
   ini->count = 0;
