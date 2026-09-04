@@ -8,17 +8,31 @@
 #include "../inilite.h"
 
 int main(void) {
-    char content[512];
-    SDC_io_read_entire_file(content, "input.ini");
+    char content[8000];
+    if (!SDC_io_read_entire_file(content, "output.ini")) {
+        fprintf(stderr, "input file not found\n");
+        return 0;
+    }
 
     // DE-SERIALIZATION
     {
         Ini ini_in = {0};
         Ini_init(&ini_in, content);
-        // _Ini_print(&i_in);
+        _Ini_print(&ini_in);
 
-        IniSection *ini_db = Ini_get_section(&ini_in, "database");
-        printf("name: %s\n", IniSection_get_value(ini_db, "name"));
+        IniSection *ini_db = Ini_get_section(&ini_in, "gojo");
+        if (!ini_db) {
+            fprintf(stderr, "section not found\n");
+            return 0;
+        }
+
+        char *v = IniSection_get_value(ini_db, "description");
+        if (!v) {
+            fprintf(stderr, "value not found\n");
+            return 0;
+        }
+
+        // printf("%s\n", v);
 
         Ini_free(&ini_in);
     }
@@ -32,6 +46,18 @@ int main(void) {
         Ini_append_kv(&ini_out, "name", "Satoru Gojo");
         Ini_append_kv(&ini_out, "occupation", "Jujutsu Sorcerer");
         Ini_append_kv(&ini_out, "birthday", "December 7, 1989");
+        Ini_append_kv(
+                &ini_out, "description",
+                "Satoru Gojo is known as the strongest jujutsu sorcerer within the "
+                "modern jujutsu society. He earned this alias in part due to the "
+                "immense amounts of cursed energy he possesses. Gojo's vast cursed "
+                "energy, combined with his cursed energy efficiency, allows him to "
+                "expand his domain at least five times in one day, while most "
+                "sorcerers and special grade cursed spirits can only use it once. "
+                "Throughout his fight with Sukuna, Gojo used cursed energy to "
+                "constantly reinforce himself and activate his cursed techniques "
+                "multiple times, without ever showing signs of exhausting his "
+                "reserves. ");
 
         Ini_append_section(&ini_out, "itadori");
         Ini_append_kv(&ini_out, "name", "Yuji Itadori");
@@ -41,6 +67,8 @@ int main(void) {
         char new_content[128 * 100] = {0};
         Ini_build(&ini_out, new_content);
         Ini_free(&ini_out);
+
+        // printf("%s", new_content);
 
         FILE *output = fopen("output.ini", "w");
         fprintf(output, "%s", new_content);

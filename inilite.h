@@ -92,7 +92,44 @@ _Ini_internal bool _Ini_str_is_empty(const char *s) {
   return true;
 }
 
-_Ini_internal bool Ini_append_kv(Ini *ini, char *key, char *val) {
+_Ini_internal void _Ini_str_to_lower(char *s) {
+  size_t i;
+  for (i = 0; i < strlen(s); i++)
+    s[i] = tolower(s[i]);
+}
+
+#define _Ini_value_line_len 54
+
+_Ini_internal char *_Ini_add_linebreaks(char *val) {
+  char tmp[2048], *c = val;
+  size_t tmp_len = 0;
+  bool line_break_due = false;
+  while (*c) {
+    if (tmp_len > (_Ini_value_line_len / 2) &&
+        tmp_len % _Ini_value_line_len == 0)
+      line_break_due = true;
+    if ((*c == ' ' || *c == '_' || *c == '-' || *c == '.' || *c == ',') &&
+        line_break_due == true) {
+      tmp[tmp_len++] = *c;
+      c++;
+      tmp[tmp_len++] = '\\';
+      tmp[tmp_len++] = '\n';
+      line_break_due = false;
+    }
+    tmp[tmp_len++] = *c;
+    c++;
+  }
+  tmp[tmp_len] = '\0';
+  return _Ini_strdup(tmp);
+}
+
+typedef enum {
+  _INI_APPEND_KV_WRITE,
+  _INI_APPEND_KV_READ,
+} _Ini_append_kv_type;
+
+_Ini_internal bool _Ini_append_kv_intern(Ini *ini, char *key, char *val,
+                                         _Ini_append_kv_type type) {
   if (!key || !val)
     return false;
 
@@ -103,11 +140,20 @@ _Ini_internal bool Ini_append_kv(Ini *ini, char *key, char *val) {
     return false;
 
   SEC.kv[KV_COUNT][0] = _Ini_strdup(key);
-  SEC.kv[KV_COUNT][1] = _Ini_strdup(val);
+
+  if ((strlen(val) > _Ini_value_line_len) && type == _INI_APPEND_KV_WRITE)
+    SEC.kv[KV_COUNT][1] = _Ini_add_linebreaks(val);
+  else
+    SEC.kv[KV_COUNT][1] = _Ini_strdup(val);
+
   SEC.kv_count++;
   return true;
 #undef SEC
 #undef KV_COUNT
+}
+
+bool Ini_append_kv(Ini *ini, char *key, char *val) {
+  return _Ini_append_kv_intern(ini, key, val, _INI_APPEND_KV_WRITE);
 }
 
 _Ini_internal bool _Ini_intern_append_section(Ini *ini,
@@ -128,40 +174,10 @@ _Ini_internal bool _Ini_intern_append_section(Ini *ini,
   return true;
 }
 
-_Ini_internal char **_Ini_split_rows(size_t *n_lines, char *content) {
-  char row_tmp[512], *c, **split_lines;
-  size_t count = 0, row_tmp_len = 0, split_lines_n = 0;
-
-  c = content;
-  while (*c++) {
-    if (*c == '\n')
-      count++;
-  }
-  *n_lines = count;
-
-  split_lines = malloc(sizeof(char *) * count);
-
-  c = content;
-  while (*c) {
-    if (*c == '\n') {
-      row_tmp[row_tmp_len] = '\0';
-      split_lines[split_lines_n++] = _Ini_strdup(row_tmp);
-      assert(split_lines_n <= count);
-      row_tmp_len = 0;
-      c++;
-      continue;
-    }
-    row_tmp[row_tmp_len++] = *c;
-    c++;
-  }
-
-  return split_lines;
-}
-
-IniSection *Ini_get_section(Ini *ini, const char *section_name) {
+IniSection *Ini_get_section(Ini *ini, char *section_name) {
   size_t i;
-  for (size_t i = 0; i < ini->count; i++) {
-    if (strstr(ini->sections[i].name, section_name) == 0) {
+  for (i = 0; i < ini->count; i++) {
+    if (strstr(ini->sections[i].name, section_name) != 0) {
       return &ini->sections[i];
     }
   }
@@ -170,10 +186,7 @@ IniSection *Ini_get_section(Ini *ini, const char *section_name) {
 
 char *IniSection_get_value(IniSection *sec, const char *key) {
   size_t i;
-  for (size_t i = 0; i < sec->kv_count; i++) {
-    //  printf("%s: ", sec->kv[i][0]);
-    //  printf("%s\n", sec->kv[i][1]);
-
+  for (i = 0; i < sec->kv_count; i++) {
     if (strstr(sec->kv[i][0], key) != 0) {
       return sec->kv[i][1];
     }
@@ -197,6 +210,63 @@ void Ini_append_section(Ini *ini, char *name) {
       ini, (IniSection){.kv = {0}, .kv_count = 0, .name = name});
 }
 
+_Ini_internal char **_Ini_split_rows(size_t *n_lines, char *content) {
+  char row_tmp[2048], *c, **split_lines;
+  size_t count = 0, row_tmp_len = 0, split_lines_n = 0;
+
+  // first pass: logical lines accounting for '\' new-line escape
+  // note: newline preceded by '' is considered a continuation
+  c = content;
+  while (*c) {
+    if (*c == '\n' && (c == content || *(c - 1) != '\\'))
+      count++;
+    c++;
+  }
+
+  // If doesn't end in newline, there's a final line
+  if (c != content && *(c - 1) != '\n')
+    count++;
+
+  *n_lines = count;
+
+  split_lines = malloc(sizeof(char *) * count);
+  assert(split_lines != NULL);
+
+  // second pass with line count collected after first pass
+
+  c = content;
+  while (*c) {
+    if (*c == '\\' && *(c + 1) == '\n') {
+      c += 2;
+      continue;
+    }
+
+    if (*c == '\n') {
+      row_tmp[row_tmp_len] = '\0';
+      split_lines[split_lines_n++] = _Ini_strdup(row_tmp);
+
+      assert(split_lines_n <= count);
+
+      row_tmp_len = 0;
+      c++;
+      continue;
+    }
+
+    assert(row_tmp_len < sizeof(row_tmp) - 1);
+    row_tmp[row_tmp_len++] = *c++;
+  }
+
+  // final line
+  if (row_tmp_len > 0) {
+    row_tmp[row_tmp_len] = '\0';
+    split_lines[split_lines_n++] = _Ini_strdup(row_tmp);
+  }
+
+  *n_lines = split_lines_n;
+  return split_lines;
+}
+
+#define _INI_PARSE_STACK_BUFF_SZ 2048 * 1000
 _Ini_internal bool _Ini_parse(Ini *ini, char *content) {
   size_t row, col, i, n_rows;
   char *current_row, **rows;
@@ -213,7 +283,7 @@ _Ini_internal bool _Ini_parse(Ini *ini, char *content) {
     if (current_row[col] == _Ini_SEC_HEAD_BEGIN) {
       col = 1;
       _Ini_log("SECTION ");
-      char section[128];
+      char section[_INI_PARSE_STACK_BUFF_SZ];
       size_t section_len = 0;
       while (current_row[col] != _Ini_SEC_HEAD_END) {
         if (current_row[col] == '\0')
@@ -230,31 +300,33 @@ _Ini_internal bool _Ini_parse(Ini *ini, char *content) {
 
     // else this must be a key-value row
 
-    if (strstr(current_row, (char[2]){_Ini_DELIM, '\0'}) == 0)
-      goto failure;
-
-    char key[128], val[128];
-    size_t key_len = 0, val_len = 0;
-
-    while (current_row[col] != _Ini_DELIM) {
-      if (current_row[col] == '\0')
+    {
+      if (strstr(current_row, (char[2]){_Ini_DELIM, '\0'}) == 0)
         goto failure;
-      key[key_len++] = current_row[col++];
-    }
-    col++;
 
-    while (current_row[col] != '\0') {
-      val[val_len++] = current_row[col++];
-    }
+      char key[_INI_PARSE_STACK_BUFF_SZ], val[_INI_PARSE_STACK_BUFF_SZ];
+      size_t key_len = 0, val_len = 0;
 
-    key[key_len] = '\0';
-    val[val_len] = '\0';
-    _Ini_str_trim(key);
-    _Ini_str_trim(val);
-    if (!Ini_append_kv(ini, key, val)) {
-      return false;
+      while (current_row[col] != _Ini_DELIM) {
+        if (current_row[col] == '\0')
+          goto failure;
+        key[key_len++] = current_row[col++];
+      }
+      col++;
+
+      while (current_row[col] != '\0') {
+        val[val_len++] = current_row[col++];
+      }
+
+      key[key_len] = '\0';
+      val[val_len] = '\0';
+      _Ini_str_trim(key);
+      _Ini_str_trim(val);
+      if (!_Ini_append_kv_intern(ini, key, val, _INI_APPEND_KV_READ)) {
+        return false;
+      }
+      _Ini_log("KEY %s VALUE %s\n", key, val);
     }
-    _Ini_log("KEY %s VALUE %s\n", key, val);
   }
 
   for (i = 0; i < n_rows; i++)
@@ -308,12 +380,6 @@ _Ini_internal void _Ini_print(Ini *ini) {
 #endif // INILITE_IMPLEMENTATION
 
 /*
-
--------------------------------------------------------------------------------
-Revision history:
-
-    2026-09-04  Initial commit
-    ----------
 
 -------------------------------------------------------------------------------
 References:
