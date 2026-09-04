@@ -1,5 +1,6 @@
 CompileFlags:
   Add:
+    - -DINILITE_IMPLEMENTATION
     - -xc
     - -DTEST
     - -std=c99
