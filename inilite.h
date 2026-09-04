@@ -54,6 +54,29 @@ typedef struct Ini {
   size_t cap;
 } Ini;
 
+_Ini_internal void _Ini_quote_trim(char *s) {
+  char *start = s;
+  char *end;
+  size_t len;
+
+  while (*start == '"')
+    start++;
+
+  if (*start == '\0') {
+    s[0] = '\0';
+    return;
+  }
+
+  end = start + strlen(start) - 1;
+
+  while (end > start && *end == '"')
+    end--;
+
+  len = (size_t)(end - start) + 1;
+  memmove(s, start, len);
+  s[len] = '\0';
+}
+
 _Ini_internal void _Ini_str_trim(char *s) {
   char *start = s, *end;
   size_t len;
@@ -316,6 +339,7 @@ _Ini_internal bool _Ini_parse(Ini *ini, char *content) {
       val[val_len] = '\0';
       _Ini_str_trim(key);
       _Ini_str_trim(val);
+      _Ini_quote_trim(val);
       if (!_Ini_append_kv_intern(ini, key, val, _INI_APPEND_KV_READ)) {
         return false;
       }
