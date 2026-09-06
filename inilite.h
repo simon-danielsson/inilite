@@ -388,7 +388,8 @@ void Ini_init(Ini *ini, char *content) {
     _Ini_parse(ini, content);
 }
 
-_Ini_internal void _Ini_print(Ini *ini) {
+// Print the contents of an Ini struct for debugging purposes.
+void Ini_print(Ini *ini) {
   for (size_t i = 0; i < ini->count; i++) {
     printf("%s (%ld)\n", ini->sections[i].name, ini->sections[i].kv_count);
     for (size_t j = 0; j < ini->sections[i].kv_count; j++) {
